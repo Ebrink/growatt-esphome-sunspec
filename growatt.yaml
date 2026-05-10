@@ -1,0 +1,469 @@
+# ============================================================
+#  Growatt 3600 TL-X  —  ESPHome + SunSpec TCP server
+#  Target: ESP8266 ESP-07
+#
+#  File layout:
+#    <config_dir>/
+#    ├── growatt-sunspec.yaml
+#    └── components/
+#        └── sunspec_server/
+#            ├── __init__.py
+#            └── sunspec_server.h
+# ============================================================
+
+substitutions:
+  modbus_update_interval: 10s
+  skip_updates_slow: "6"   # every 6th poll = every ~60 s for slow sensors
+
+esphome:
+  name: growatt-1
+  friendly_name: Growatt 3600 TL-X 1
+
+esp8266:
+  board: esp07s        # ESP-07 module (2 MB flash, external antenna)
+  restore_from_flash: true
+  framework:
+    version: recommended
+
+# ── External component ───────────────────────────────────────────────────────
+external_components:
+  - source:
+      type: local
+      path: components
+
+# ── SunSpec TCP server (port 502) ────────────────────────────────────────────
+sunspec_server:
+  port: 502
+  ac_current_id:     ac_current
+  ac_voltage_id:     ac_voltage
+  ac_power_id:       ac_power
+  grid_frequency_id: grid_frequency
+  pv1_current_id:    pv1_current
+  pv2_current_id:    pv2_current
+  pv1_voltage_id:    pv1_voltage
+  pv2_voltage_id:    pv2_voltage
+  pv1_power_id:      pv1_power
+  pv2_power_id:      pv2_power
+  total_energy_id:   total_energy
+  inverter_temp_id:  inverter_temp
+  status_code_id:    status
+  power_limit_id:    sunspec_power_limit
+
+# ── LED outputs ──────────────────────────────────────────────────────────────
+output:
+  - id: light_bl
+    platform: gpio
+    pin: 16
+  - id: light_gr
+    platform: gpio
+    pin: 0
+  - id: light_rd
+    platform: gpio
+    pin: 2
+
+# ── RS485 / Modbus ───────────────────────────────────────────────────────────
+uart:
+  - id: uart_id1
+    baud_rate: 115200
+    tx_pin: GPIO1
+    rx_pin: GPIO3
+
+modbus:
+  id: modbus1
+  uart_id: uart_id1
+  flow_control_pin: GPIO4
+
+modbus_controller:
+  - id: growatt
+    address: 0x1
+    modbus_id: modbus1
+    setup_priority: -10
+    update_interval: ${modbus_update_interval}
+
+# ── Number entities ──────────────────────────────────────────────────────────
+number:
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    id: remote_on_off
+    name: "Remote On/Off"
+    address: 0
+    register_type: holding
+    value_type: U_WORD
+    min_value: 0
+    max_value: 3
+    step: 1
+    icon: mdi:eye
+    entity_category: diagnostic
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    id: max_output_power
+    name: "Max Output Power"
+    address: 3
+    register_type: holding
+    value_type: U_WORD
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    entity_category: config
+
+  - platform: template
+    id: sunspec_power_limit
+    name: "SunSpec Power Limit"
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:transmission-tower-export
+    entity_category: config
+    optimistic: true
+    initial_value: 100
+    on_value:
+      then:
+        - number.set:
+            id: max_output_power
+            value: !lambda "return x;"
+
+# ── Sensors ──────────────────────────────────────────────────────────────────
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "status_code"
+    id: status
+    internal: true
+    skip_updates: ${skip_updates_slow}
+    address: 0
+    register_type: "read"
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "Input Power"
+    address: 1
+    register_type: "read"
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    icon: mdi:solar-power-variant
+    value_type: U_WORD
+    accuracy_decimals: 0
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "PV1 Voltage"
+    id: pv1_voltage
+    address: 3
+    register_type: "read"
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "PV1 Current"
+    id: pv1_current
+    address: 4
+    register_type: "read"
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "PV1 Active Power"
+    id: pv1_power
+    address: 5
+    register_type: "read"
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_DWORD
+    accuracy_decimals: 0
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "PV2 Voltage"
+    id: pv2_voltage
+    address: 7
+    register_type: "read"
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "PV2 Current"
+    id: pv2_current
+    address: 8
+    register_type: "read"
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "PV2 Active Power"
+    id: pv2_power
+    address: 9
+    register_type: "read"
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_DWORD
+    accuracy_decimals: 0
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "Frequency"
+    id: grid_frequency
+    address: 37
+    register_type: "read"
+    unit_of_measurement: Hz
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.01
+
+  # Single-phase: Phase A registers (38-40) are the AC output
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "AC Voltage"
+    id: ac_voltage
+    address: 38
+    register_type: "read"
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "AC Current"
+    id: ac_current
+    address: 39
+    register_type: "read"
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "AC Power"
+    id: ac_power
+    address: 40
+    register_type: "read"
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    icon: mdi:flash
+    value_type: U_DWORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "Grid Active Power"
+    id: grid_active_power
+    address: 35
+    register_type: "read"
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    icon: mdi:solar-power
+    value_type: U_DWORD
+    accuracy_decimals: 0
+    filters:
+      - multiply: 0.1
+
+  - platform: template
+    id: pv_power
+    name: "PV Active Power"
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    icon: mdi:solar-power-variant
+    accuracy_decimals: 0
+    lambda: |-
+      return float(id(pv1_power).state + id(pv2_power).state);
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "Today's Generation"
+    id: todays_generation
+    skip_updates: ${skip_updates_slow}
+    address: 53
+    register_type: "read"
+    unit_of_measurement: kWh
+    state_class: total_increasing
+    device_class: energy
+    icon: mdi:solar-power
+    value_type: U_DWORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "Total Energy Production"
+    id: total_energy
+    skip_updates: ${skip_updates_slow}
+    address: 55
+    register_type: "read"
+    unit_of_measurement: kWh
+    state_class: total_increasing
+    device_class: energy
+    icon: mdi:solar-power
+    value_type: U_DWORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "Inverter Module Temp"
+    id: inverter_temp
+    skip_updates: ${skip_updates_slow}
+    address: 93
+    register_type: "read"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    entity_category: diagnostic
+    icon: mdi:thermometer
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+  - platform: wifi_signal
+    name: "Wi-Fi Signal"
+    update_interval: 60s
+
+# ── Select entities ──────────────────────────────────────────────────────────
+select:
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "AC Charging"
+    icon: mdi:battery-charging-100
+    address: 1092
+    value_type: U_WORD
+    optionsmap:
+      "Disabled": 0
+      "Enabled": 1
+    skip_updates: ${skip_updates_slow}
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "Inverter Priority"
+    icon: mdi:arrow-decision-outline
+    address: 1044
+    value_type: U_WORD
+    optionsmap:
+      "Load First": 0
+      "Battery First": 1
+      "Grid First": 2
+    skip_updates: ${skip_updates_slow}
+
+# ── Text sensors ─────────────────────────────────────────────────────────────
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Wi-Fi SSID"
+    bssid:
+      name: "Wi-Fi BSSID"
+  - platform: version
+    name: "ESPHome Version"
+    hide_timestamp: true
+
+  - platform: template
+    name: "Status State"
+    icon: mdi:eye
+    entity_category: diagnostic
+    lambda: |-
+      switch ((int) id(status).state) {
+        case 0:  return {"Standby"};
+        case 1:  return {"Normal"};
+        case 2:  return {"Discharge"};
+        case 3:  return {"Fault"};
+        case 4:  return {"Flash"};
+        case 5:  return {"PV Charging"};
+        case 6:  return {"AC Charging"};
+        case 7:  return {"Combined Charging"};
+        case 8:  return {"Combined Charging & Bypass"};
+        case 9:  return {"PV Charging & Bypass"};
+        case 10: return {"AC Charging & Bypass"};
+        case 11: return {"Bypass"};
+        case 12: return {"PV Charge and Discharge"};
+        default: return {"Unknown"};
+      }
+
+  - platform: modbus_controller
+    modbus_controller_id: growatt
+    name: "Fault Code"
+    address: 105
+    register_type: "read"
+    icon: mdi:eye
+    entity_category: diagnostic
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = modbus_controller::word_from_hex_str(x, 0);
+      switch (value) {
+        case 0:  return std::string("No error");
+        case 24: return std::string("Auto test failed");
+        case 25: return std::string("No AC connection");
+        case 26: return std::string("PV isolation low");
+        case 27: return std::string("Residual I high");
+        case 28: return std::string("Output high DCI");
+        case 29: return std::string("PV voltage high");
+        case 30: return std::string("AC voltage out of range");
+        case 31: return std::string("AC frequency out of range");
+        case 32: return std::string("Module too hot");
+        default: return std::string("Fault code: " + to_string(value));
+      }
+      return x;
